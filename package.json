@@ -1,6 +1,6 @@
 {
     "name": "steamworks.js",
-    "version": "0.4.0-setter.1",
+    "version": "0.4.0-setter.2",
     "main": "index.js",
     "types": "index.d.ts",
     "napi": {
