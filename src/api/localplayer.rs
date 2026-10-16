@@ -61,6 +61,10 @@ pub mod localplayer {
     /// @returns the player's large avatar, or null when the player has none or Steam is still loading it
     #[napi]
     pub fn get_avatar() -> Option<PlayerAvatar> {
+        // Steam's large avatar is 184 pixels square. A side above this cap is
+        // a malformed image, rejected before the pixel buffer is allocated;
+        // Setter's Electron facade applies the same cap.
+        const MAX_SIDE: u32 = 512;
         let client = crate::client::get_client();
         let steam_id = client.user().steam_id();
         unsafe {
@@ -84,10 +88,10 @@ pub mod localplayer {
             ) {
                 return None;
             }
-            let size = width as usize * height as usize * 4;
-            if size == 0 {
+            if !(1..=MAX_SIDE).contains(&width) || !(1..=MAX_SIDE).contains(&height) {
                 return None;
             }
+            let size = width as usize * height as usize * 4;
             let mut rgba = vec![0; size];
             if !steamworks::sys::SteamAPI_ISteamUtils_GetImageRGBA(
                 utils,
