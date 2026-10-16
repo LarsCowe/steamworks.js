@@ -1,6 +1,12 @@
 export declare function init(appId?: number | undefined | null): void
 export declare function restartAppIfNecessary(appId: number): boolean
 export declare function runCallbacks(): void
+/** The local player's avatar as RGBA pixels, row by row from the top left. */
+export interface PlayerAvatar {
+  width: number
+  height: number
+  rgba: Buffer
+}
 export interface PlayerSteamId {
   steamId64: bigint
   steamId32: string
@@ -115,6 +121,8 @@ export declare namespace localplayer {
   export function getSteamId(): PlayerSteamId
   export function getName(): string
   export function getLevel(): number
+  /** @returns the player's large avatar, or null when the player has none or Steam is still loading it */
+  export function getAvatar(): PlayerAvatar | null
   /** @returns the 2 digit ISO 3166-1-alpha-2 format country code which client is running in, e.g. "US" or "UK". */
   export function getIpCountry(): string
   export function setRichPresence(key: string, value?: string | undefined | null): void

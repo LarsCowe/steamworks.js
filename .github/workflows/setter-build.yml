@@ -1,0 +1,109 @@
+# Builds this fork (steamworks.js 0.4.0 plus localplayer.getAvatar()) for
+# Setter: the four native binaries, one npm tarball, and on a v*-setter.* tag a
+# GitHub release carrying that tarball. Nothing is published to npm.
+name: Setter build
+
+on:
+    push:
+        branches: ['setter/**']
+        tags: ['v*-setter.*']
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+env:
+    DEBUG: 'napi:*'
+    MACOSX_DEPLOYMENT_TARGET: '10.13'
+
+jobs:
+    check:
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+            - name: Check formatting
+              run: cargo fmt --all --check
+            - name: Clippy
+              run: cargo clippy
+
+    build:
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo install cargo-xwin --locked
+            - run: npm ci
+            - name: Build Linux
+              run: npm run build -- --target x86_64-unknown-linux-gnu
+            - name: Build Windows
+              run: npm run build -- --target x86_64-pc-windows-msvc
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: binaries-linux-windows
+                  path: dist
+                  if-no-files-found: error
+
+    build-mac:
+        runs-on: macos-14
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: x86_64-apple-darwin, aarch64-apple-darwin
+            - uses: Swatinem/rust-cache@v2
+            - run: npm ci
+            - name: Build Mac x64
+              run: npm run build -- --target x86_64-apple-darwin
+            - name: Build Mac arm64
+              run: npm run build -- --target aarch64-apple-darwin
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: binaries-macos
+                  path: dist
+                  if-no-files-found: error
+
+    package:
+        runs-on: ubuntu-22.04
+        needs: [check, build, build-mac]
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  pattern: binaries-*
+                  path: dist
+                  merge-multiple: true
+            - name: List binaries
+              run: ls -lR dist
+            - name: Pack
+              run: npm pack
+            - name: Checksum
+              run: sha256sum steamworks.js-*.tgz | tee SHA256SUMS
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: package
+                  path: |
+                      steamworks.js-*.tgz
+                      SHA256SUMS
+                  if-no-files-found: error
+            - name: Release
+              if: startsWith(github.ref, 'refs/tags/')
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: >-
+                  gh release create "$GITHUB_REF_NAME" steamworks.js-*.tgz SHA256SUMS
+                  --title "$GITHUB_REF_NAME"
+                  --notes "steamworks.js 0.4.0 (ceifa/steamworks.js fa6c6af) with localplayer.getAvatar(), built for Setter. Not published to npm."

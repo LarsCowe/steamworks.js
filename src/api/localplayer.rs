@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::BigInt;
+use napi::bindgen_prelude::{BigInt, Buffer};
 use napi_derive::napi;
 use steamworks::SteamId;
 
@@ -8,6 +8,14 @@ pub struct PlayerSteamId {
     pub steam_id64: BigInt,
     pub steam_id32: String,
     pub account_id: u32,
+}
+
+/// The local player's avatar as RGBA pixels, row by row from the top left.
+#[napi(object)]
+pub struct PlayerAvatar {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Buffer,
 }
 
 impl PlayerSteamId {
@@ -22,7 +30,7 @@ impl PlayerSteamId {
 
 #[napi]
 pub mod localplayer {
-    use super::PlayerSteamId;
+    use super::{PlayerAvatar, PlayerSteamId};
 
     #[napi]
     pub fn get_steam_id() -> PlayerSteamId {
@@ -48,6 +56,53 @@ pub mod localplayer {
     pub fn get_ip_country() -> String {
         let client = crate::client::get_client();
         client.utils().ip_country()
+    }
+
+    /// @returns the player's large avatar, or null when the player has none or Steam is still loading it
+    #[napi]
+    pub fn get_avatar() -> Option<PlayerAvatar> {
+        let client = crate::client::get_client();
+        let steam_id = client.user().steam_id();
+        unsafe {
+            let friends = steamworks::sys::SteamAPI_SteamFriends_v017();
+            let utils = steamworks::sys::SteamAPI_SteamUtils_v010();
+            // 0: no avatar set; -1: the image is still being loaded.
+            let image = steamworks::sys::SteamAPI_ISteamFriends_GetLargeFriendAvatar(
+                friends,
+                steam_id.raw(),
+            );
+            if image <= 0 {
+                return None;
+            }
+            let mut width = 0;
+            let mut height = 0;
+            if !steamworks::sys::SteamAPI_ISteamUtils_GetImageSize(
+                utils,
+                image,
+                &mut width,
+                &mut height,
+            ) {
+                return None;
+            }
+            let size = width as usize * height as usize * 4;
+            if size == 0 {
+                return None;
+            }
+            let mut rgba = vec![0; size];
+            if !steamworks::sys::SteamAPI_ISteamUtils_GetImageRGBA(
+                utils,
+                image,
+                rgba.as_mut_ptr(),
+                size as i32,
+            ) {
+                return None;
+            }
+            Some(PlayerAvatar {
+                width,
+                height,
+                rgba: rgba.into(),
+            })
+        }
     }
 
     #[napi]
