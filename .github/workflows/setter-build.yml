@@ -1,6 +1,8 @@
 # Builds this fork (steamworks.js 0.4.0 plus localplayer.getAvatar()) for
-# Setter: the four native binaries, one npm tarball, and on a v*-setter.* tag a
-# GitHub release carrying that tarball. Nothing is published to npm.
+# Setter: the four native binaries, one npm tarball with a build provenance
+# attestation, and on a v*-setter.* tag a GitHub release carrying that tarball.
+# Nothing is published to npm. Every action is pinned by commit SHA, and no
+# job restores a cache, so a released tarball is built only from its tag.
 name: Setter build
 
 on:
@@ -20,9 +22,12 @@ jobs:
     check:
         runs-on: ubuntu-22.04
         steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
+                  persist-credentials: false
+            - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+              with:
+                  toolchain: stable
                   components: rustfmt, clippy
             - name: Check formatting
               run: cargo fmt --all --check
@@ -32,21 +37,24 @@ jobs:
     build:
         runs-on: ubuntu-22.04
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version: 20
-            - uses: dtolnay/rust-toolchain@stable
+                  package-manager-cache: false
+            - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
               with:
+                  toolchain: stable
                   targets: x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu
-            - uses: Swatinem/rust-cache@v2
-            - run: cargo install cargo-xwin --locked
+            - run: cargo install cargo-xwin --version 0.23.1 --locked
             - run: npm ci
             - name: Build Linux
               run: npm run build -- --target x86_64-unknown-linux-gnu
             - name: Build Windows
               run: npm run build -- --target x86_64-pc-windows-msvc
-            - uses: actions/upload-artifact@v4
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: binaries-linux-windows
                   path: dist
@@ -55,20 +63,23 @@ jobs:
     build-mac:
         runs-on: macos-14
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version: 20
-            - uses: dtolnay/rust-toolchain@stable
+                  package-manager-cache: false
+            - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
               with:
+                  toolchain: stable
                   targets: x86_64-apple-darwin, aarch64-apple-darwin
-            - uses: Swatinem/rust-cache@v2
             - run: npm ci
             - name: Build Mac x64
               run: npm run build -- --target x86_64-apple-darwin
             - name: Build Mac arm64
               run: npm run build -- --target aarch64-apple-darwin
-            - uses: actions/upload-artifact@v4
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: binaries-macos
                   path: dist
@@ -77,11 +88,17 @@ jobs:
     package:
         runs-on: ubuntu-22.04
         needs: [check, build, build-mac]
+        # The only job that writes: the release (contents) and the provenance
+        # attestation, signed with this run's OIDC identity.
         permissions:
             contents: write
+            id-token: write
+            attestations: write
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/download-artifact@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
               with:
                   pattern: binaries-*
                   path: dist
@@ -92,7 +109,11 @@ jobs:
               run: npm pack
             - name: Checksum
               run: sha256sum steamworks.js-*.tgz | tee SHA256SUMS
-            - uses: actions/upload-artifact@v4
+            - name: Attest build provenance
+              uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+              with:
+                  subject-path: steamworks.js-*.tgz
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: package
                   path: |
@@ -106,4 +127,4 @@ jobs:
               run: >-
                   gh release create "$GITHUB_REF_NAME" steamworks.js-*.tgz SHA256SUMS
                   --title "$GITHUB_REF_NAME"
-                  --notes "steamworks.js 0.4.0 (ceifa/steamworks.js fa6c6af) with localplayer.getAvatar(), built for Setter. Not published to npm."
+                  --notes "steamworks.js 0.4.0 (ceifa/steamworks.js fa6c6af) with localplayer.getAvatar(), built for Setter. Not published to npm. Verify the tarball with: gh attestation verify <tarball> --repo LarsCowe/steamworks.js"
